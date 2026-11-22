@@ -25,7 +25,9 @@ mkdirSync(out, { recursive: true })
 
 const copyDir = (name) => {
   const from = join(here, name)
-  if (!existsSync(from)) throw new Error(`main.ts: missing ${name}/ beside this file`)
+  if (!existsSync(from)) {
+    throw new Error(`main.ts: expected ${name}/ beside this file at ${from}, but it is missing`)
+  }
   cpSync(from, join(out, name), { recursive: true })
 }
 
