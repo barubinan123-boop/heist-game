@@ -1,65 +1,81 @@
-// Sound, synthesized live with WebAudio — no audio files, no network. A
-// soft footstep tick, a coin clink, a loot chime, an alarm sting when a guard
-// spots the thief, and a short fanfare for the getaway. Nothing plays until
-// the player first presses a key or clicks, which is also when browsers allow
-// audio to start.
-
-let ctx = null
-let muted = false
+// Tiny procedural sound: short oscillator blips, no audio files. The
+// context is created on the first user gesture, so browsers allow it.
+let ctx = null;
+let alarmTimer = 0;
 
 function ensure() {
-  if (!ctx) {
-    try {
-      ctx = new (window.AudioContext || window.webkitAudioContext)()
-    } catch {
-      ctx = null
-    }
+  if (ctx) return ctx;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    ctx = new AC();
+  } catch {
+    return null;
   }
-  if (ctx && ctx.state === 'suspended') void ctx.resume()
-  return ctx
+  return ctx;
 }
 
 export function unlockAudio() {
-  ensure()
+  const c = ensure();
+  if (c && c.state === 'suspended') c.resume().catch(() => {});
 }
 
-export function toggleMute() {
-  muted = !muted
-  return muted
+function tone(freq, dur, type, gain, slideTo) {
+  const c = ensure();
+  if (!c) return;
+  try {
+    const o = c.createOscillator();
+    const g = c.createGain();
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, c.currentTime);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, c.currentTime + dur);
+    g.gain.setValueAtTime(gain || 0.08, c.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
+    o.connect(g);
+    g.connect(c.destination);
+    o.start();
+    o.stop(c.currentTime + dur + 0.02);
+  } catch {
+    // Sound is garnish; a failure here never stops the game.
+  }
 }
 
-export function isMuted() {
-  return muted
+// One short beep while the alarm runs hot, throttled by the caller.
+export function alarmTick(alarm, dt) {
+  if (alarm < 55) return;
+  alarmTimer -= dt;
+  if (alarmTimer > 0) return;
+  alarmTimer = alarm > 85 ? 0.35 : 0.7;
+  tone(620, 0.09, 'square', 0.03);
 }
 
-function tone(freq, dur, type, vol, when = 0, slideTo = null) {
-  if (muted) return
-  const ac = ensure()
-  if (!ac) return
-  const t0 = ac.currentTime + when
-  const osc = ac.createOscillator()
-  const gain = ac.createGain()
-  osc.type = type
-  osc.frequency.setValueAtTime(freq, t0)
-  if (slideTo !== null) osc.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur)
-  gain.gain.setValueAtTime(0.0001, t0)
-  gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.012)
-  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur)
-  osc.connect(gain)
-  gain.connect(ac.destination)
-  osc.start(t0)
-  osc.stop(t0 + dur + 0.05)
-}
-
-export const sfx = {
-  step() { tone(190 + Math.random() * 40, 0.05, 'triangle', 0.03) },
-  coin() { tone(1320, 0.09, 'sine', 0.08); tone(1760, 0.12, 'sine', 0.06, 0.06) },
-  loot() { tone(660, 0.1, 'sine', 0.09); tone(880, 0.1, 'sine', 0.09, 0.08); tone(1320, 0.18, 'sine', 0.08, 0.16) },
-  spotted() { tone(220, 0.16, 'sawtooth', 0.07, 0, 440); tone(440, 0.16, 'sawtooth', 0.05, 0.14, 220) },
-  caught() { tone(330, 0.5, 'sawtooth', 0.09, 0, 82) },
-  alarmTick() { tone(980, 0.07, 'square', 0.035) },
-  win() {
-    ;[523, 659, 784, 1047].forEach((f, i) => tone(f, 0.22, 'triangle', 0.09, i * 0.12))
-  },
-  denied() { tone(160, 0.12, 'square', 0.05) },
+export function playEvent(type) {
+  switch (type) {
+    case 'pickup':
+      tone(880, 0.08, 'sine', 0.07);
+      setTimeout(() => tone(1320, 0.1, 'sine', 0.06), 60);
+      break;
+    case 'coin':
+      tone(1500, 0.06, 'triangle', 0.06, 900);
+      break;
+    case 'star':
+      tone(660, 0.12, 'sine', 0.08);
+      setTimeout(() => tone(990, 0.12, 'sine', 0.08), 110);
+      setTimeout(() => tone(1320, 0.22, 'sine', 0.08), 220);
+      break;
+    case 'vault':
+      tone(220, 0.25, 'sawtooth', 0.05, 440);
+      break;
+    case 'spot':
+      tone(196, 0.16, 'square', 0.07, 392);
+      break;
+    case 'caught':
+      tone(392, 0.5, 'sawtooth', 0.09, 98);
+      break;
+    case 'win':
+      [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => tone(f, 0.18, 'sine', 0.08), i * 120));
+      break;
+    default:
+      break;
+  }
 }

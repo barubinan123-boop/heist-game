@@ -1,168 +1,137 @@
-// Bootstrap: input, the animation loop, and the screens. The game runs at a
-// fixed 60 Hz step so a room plays the same on any machine.
-//
-// ?demo=cover | alarm | diamond | win renders a frozen, staged moment of the
-// game — the same code path as playing, with the clock held still — so the
-// screenshots show the game at its best.
+// Sable & Smoke — game loop, input and phase state. Boots the canvas,
+// runs the thief, guards and cameras, and drains sound events.
+import { CONFIG } from './config.js';
+import { THIEF_START, freshLoot, freshGuards, freshCameras } from './level.js';
+import { createThief, updateThief } from './thief.js';
+import { updateGuards } from './guard.js';
+import { updateCameras } from './camera.js';
+import { draw, HUD_H } from './render.js';
+import { applyShot } from './shots.js';
+import { unlockAudio, playEvent, alarmTick } from './audio.js';
 
-import { VIEW_W, VIEW_H, TILE } from './config.js'
-import { newGame, loadLevel, update, nextLevel, restartLevel, restartRun, lootTaken, lootTotal } from './game.js'
-import { render } from './render.js'
-import { throwCoin } from './player.js'
-import { unlockAudio, toggleMute } from './audio.js'
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+canvas.width = CONFIG.viewW;
+canvas.height = CONFIG.viewH + HUD_H;
 
-const canvas = document.getElementById('game')
-const ctx = canvas.getContext('2d')
-const state = newGame()
-
-const params = new URLSearchParams(window.location.search)
-const demo = params.get('demo')
-
-loadLevel(state, 0)
-state.screen = 'title'
-
-if (demo) stageDemo(state, demo)
-
-function stageDemo(st, kind) {
-  if (kind === 'cover') {
-    // Mid-room, mid-patrol: the thief slips between two cones toward a painting.
-    st.screen = 'playing'
-    st.thief.x = 9 * TILE + 16
-    st.thief.y = 9 * TILE + 16
-    st.thief.facing = Math.PI / 2
-    st.time = 3.4
-    st.alarm = 18
-    st.guards[0].x = 22 * TILE + 16
-    st.guards[0].y = 3 * TILE + 16
-    st.guards[0].angle = Math.PI
-    st.guards[1].x = 8 * TILE + 16
-    st.guards[1].y = 11 * TILE + 16
-    st.guards[1].angle = -Math.PI / 2
-    st.guards[2].x = 7 * TILE + 16
-    st.guards[2].y = 16 * TILE + 16
-    st.guards[2].angle = 0
-    st.world.loot[0].taken = true
-  } else if (kind === 'alarm') {
-    // Room 2, caught in a camera cone with the alarm climbing.
-    loadLevel(st, 1)
-    st.screen = 'playing'
-    st.thief.x = 15 * TILE + 16
-    st.thief.y = 10 * TILE + 16
-    st.thief.facing = Math.PI
-    st.time = 6.2
-    st.alarm = 72
-    st.seenNow = true
-    st.guards[0].x = 21 * TILE + 16
-    st.guards[0].y = 4 * TILE + 16
-    st.guards[0].angle = Math.PI / 2
-    st.guards[0].state = 'chase'
-    st.guards[1].x = 6 * TILE + 16
-    st.guards[1].y = 11 * TILE + 16
-    st.guards[1].angle = 0
-    st.guards[2].x = 20 * TILE + 16
-    st.guards[2].y = 13 * TILE + 16
-    st.guards[2].angle = -Math.PI / 2
-    st.cameras[0].angle = Math.PI * 0.9
-    st.cameras[1].angle = Math.PI / 2
-    st.world.loot[0].taken = true
-    st.world.loot[1].taken = true
-  } else if (kind === 'diamond') {
-    // Room 3, the diamond vault: lasers on, thief at the vault door.
-    loadLevel(st, 2)
-    st.screen = 'playing'
-    st.thief.x = 14 * TILE + 16
-    st.thief.y = 9 * TILE + 16
-    st.thief.facing = Math.PI / 2
-    st.thief.sneaking = true
-    st.time = 0.4
-    st.alarm = 31
-    st.guards[0].x = 7 * TILE + 16
-    st.guards[0].y = 3 * TILE + 16
-    st.guards[0].angle = Math.PI / 2
-    st.guards[1].x = 17 * TILE + 16
-    st.guards[1].y = 4 * TILE + 16
-    st.guards[1].angle = Math.PI
-    st.guards[2].x = 26 * TILE + 16
-    st.guards[2].y = 3 * TILE + 16
-    st.guards[2].angle = Math.PI / 2
-    st.cameras[0].angle = Math.PI * 0.75
-    st.cameras[1].angle = Math.PI * 0.15
-    st.world.loot[0].taken = true
-    st.world.loot[1].taken = true
-  } else if (kind === 'win') {
-    // The payoff screen after the third room.
-    loadLevel(st, 2)
-    st.screen = 'won'
-    st.world.loot.forEach((item) => { item.taken = true })
-    st.finalStats = { value: 62400, time: '6:42', spotted: 3, peakAlarm: 78, coins: 1 }
-    st.totalValue = 62400
-  }
+function freshState() {
+  return {
+    phase: 'title', // title | play | caught | win
+    time: 0,
+    alarm: 0,
+    take: 0,
+    vaultOpen: false,
+    frozen: false,
+    caughtBy: null,
+    thief: createThief(THIEF_START),
+    guards: freshGuards(),
+    cameras: freshCameras(),
+    loot: freshLoot(),
+    pings: [],
+    floaters: [],
+    events: [],
+  };
 }
 
-// --- Input: keyboard moves, mouse throws coins, Enter advances screens. ---
+let state = freshState();
 
-const KEYMAP = {
-  arrowup: 'arrowup', arrowdown: 'arrowdown', arrowleft: 'arrowleft', arrowright: 'arrowright',
-  w: 'w', a: 'a', s: 's', d: 'd', shift: 'shift', e: 'e',
+// Input: keys by lowercase name, mouse in map coordinates.
+const input = {
+  keys: new Set(),
+  mouse: { x: CONFIG.viewW / 2, y: CONFIG.viewH / 2 },
+  _click: false,
+  consume(k) {
+    if (!this.keys.has(k)) return false;
+    this.keys.delete(k);
+    return true;
+  },
+  consumeClick() {
+    const c = this._click;
+    this._click = false;
+    return c;
+  },
+};
+
+function keyName(e) {
+  return e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase();
 }
 
-window.addEventListener('keydown', (event) => {
-  const key = event.key.toLowerCase()
-  if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key)) event.preventDefault()
-  unlockAudio()
-
-  if (key === 'm') { toggleMute(); return }
-  if (key === 'p' && state.screen === 'playing') { state.screen = 'paused'; return }
-  if (key === 'p' && state.screen === 'paused') { state.screen = 'playing'; return }
-  if (key === 'r' && state.screen === 'busted') { restartLevel(state); state.screen = 'playing'; return }
-  if (key === 'r' && state.screen === 'won') { restartRun(state); state.screen = 'playing'; return }
-  if (key === 'r' && state.screen === 'playing') { restartLevel(state); return }
-  if (key === 'enter') {
-    if (state.screen === 'title') { state.screen = 'playing'; return }
-    if (state.screen === 'levelclear') { nextLevel(state); return }
-    if (state.screen === 'won') { restartRun(state); state.screen = 'playing'; return }
+window.addEventListener('keydown', (e) => {
+  const k = keyName(e);
+  if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k)) e.preventDefault();
+  if (!e.repeat) input.keys.add(k);
+  unlockAudio();
+  if (state.phase === 'title' && (k === 'enter' || k === ' ')) {
+    state.phase = 'play';
+  } else if ((state.phase === 'caught' || state.phase === 'win') && k === 'r') {
+    state = freshState();
   }
-  if (KEYMAP[key]) state.keys.add(KEYMAP[key])
-})
+});
+window.addEventListener('keyup', (e) => input.keys.delete(keyName(e)));
+canvas.addEventListener('mousemove', (e) => {
+  const r = canvas.getBoundingClientRect();
+  const sx = canvas.width / r.width;
+  const sy = canvas.height / r.height;
+  input.mouse.x = (e.clientX - r.left) * sx;
+  input.mouse.y = (e.clientY - r.top) * sy - HUD_H;
+});
+canvas.addEventListener('mousedown', (e) => {
+  unlockAudio();
+  if (state.phase === 'title') {
+    state.phase = 'play';
+    return;
+  }
+  input._click = true;
+});
 
-window.addEventListener('keyup', (event) => {
-  const key = event.key.toLowerCase()
-  if (KEYMAP[key]) state.keys.delete(KEYMAP[key])
-})
+// A staged screenshot scene (?shot=cover|alarm|vault|escape) freezes the
+// game on one frame so the capture is stable.
+const shot = new URLSearchParams(window.location.search).get('shot');
+if (shot) applyShot(state, shot);
 
-canvas.addEventListener('mousedown', (event) => {
-  unlockAudio()
-  if (state.screen === 'title') { state.screen = 'playing'; return }
-  if (state.screen === 'levelclear') { nextLevel(state); return }
-  if (state.screen !== 'playing') return
-  const rect = canvas.getBoundingClientRect()
-  const px = ((event.clientX - rect.left) / rect.width) * VIEW_W
-  const py = ((event.clientY - rect.top) / rect.height) * VIEW_H
-  throwCoin(state.thief, state.world, px, py)
-})
+function drainEvents() {
+  for (const ev of state.events) playEvent(ev.type);
+  state.events.length = 0;
+}
 
-// --- Loop: fixed 60 Hz steps, render every frame. ---
+function update(dt) {
+  state.time += dt;
+  // Thrown coins land and fade; floating +$ texts drift up and fade.
+  for (const p of state.pings) {
+    p.age += dt;
+    if (p.age > 0.2) p.landed = true;
+  }
+  state.pings = state.pings.filter((p) => p.age < 5);
+  for (const f of state.floaters) f.age += dt;
+  state.floaters = state.floaters.filter((f) => f.age < 1.1);
 
-let last = performance.now()
-let acc = 0
-const STEP = 1000 / 60
+  if (state.phase !== 'play' || state.frozen) return;
+  updateThief(state, input, dt);
+  updateGuards(state, dt);
+  updateCameras(state, dt);
 
+  // The alarm cools when nobody is watching.
+  const watched =
+    state.guards.some((g) => g.state === 'chase') || state.cameras.some((c) => c.seeing);
+  if (!watched) {
+    state.alarm = Math.max(0, state.alarm - CONFIG.alarmDecayRate * dt);
+  }
+  alarmTick(state.alarm, dt);
+
+  if (state.alarm >= CONFIG.alarmLockdown && state.phase === 'play') {
+    state.phase = 'caught';
+    state.caughtBy = null;
+    state.events.push({ type: 'caught' });
+  }
+  drainEvents();
+}
+
+let last = performance.now();
 function frame(now) {
-  const elapsed = Math.min(100, now - last)
-  last = now
-  if (!demo) {
-    acc += elapsed
-    while (acc >= STEP) {
-      update(state, STEP / 1000)
-      acc -= STEP
-    }
-  }
-  render(ctx, {
-    ...state,
-    lootTaken: lootTaken(state),
-    lootTotal: lootTotal(state),
-  })
-  requestAnimationFrame(frame)
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  update(dt);
+  draw(ctx, state);
+  requestAnimationFrame(frame);
 }
-
-requestAnimationFrame(frame)
+requestAnimationFrame(frame);

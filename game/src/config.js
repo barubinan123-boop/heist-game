@@ -1,90 +1,71 @@
-// Tuning for Midnight at the Meridian Vault: every number the game balances on
-// lives here, so a level or a mechanic can be retuned without touching logic.
+// Tuning constants for Sable & Smoke. One place for every number the
+// other modules share, so the game can be balanced without hunting.
+export const CONFIG = {
+  tile: 32,
+  cols: 30,
+  rows: 20,
+  viewW: 960,
+  viewH: 640,
 
-export const TILE = 32
-export const VIEW_W = 960
-export const VIEW_H = 640
+  thiefRadius: 11,
+  thiefSpeed: 148,
+  thiefSneakSpeed: 82,
 
-export const PLAYER = {
-  radius: 11,
-  walkSpeed: 148,
-  sneakSpeed: 82,
-  // A sneaking thief is harder to spot: guards and cameras see less far.
-  sneakSpotFactor: 0.58,
-}
+  guardRadius: 12,
+  guardPatrolSpeed: 62,
+  guardChaseSpeed: 128,
+  guardInvestigateSpeed: 96,
+  guardViewRange: 205,
+  guardViewHalfAngle: 0.66, // ~38 degrees each side
+  guardCatchRange: 20,
 
-export const GUARD = {
-  radius: 12,
-  patrolSpeed: 62,
-  chaseSpeed: 108,
-  investigateSpeed: 88,
-  // How far a guard can see, in pixels, and how wide its cone is (half-angle).
-  sightRange: 178,
-  halfAngle: Math.PI / 5.2,
-  // Seconds a guard keeps chasing after losing sight of the thief.
-  loseSightAfter: 2.0,
-  // Seconds a guard studies a thrown coin before going back to patrol.
-  investigateTime: 2.2,
-  // A guard that walks into the thief catches them.
-  catchDistance: 26,
-}
+  cameraRange: 235,
+  cameraHalfAngle: 0.55, // ~31 degrees each side
+  cameraSweep: 0.96, // radians each side of the base angle
+  cameraSweepSpeed: 0.55, // radians per second
 
-export const CAMERA = {
-  sightRange: 196,
-  halfAngle: Math.PI / 6,
-  // Radians per second the camera head sweeps.
-  sweepSpeed: 0.55,
-}
+  // Alertness / alarm rates, per second.
+  guardSpotRate: 58,
+  guardSpotCloseBonus: 34, // extra when the thief is within 100px
+  guardCalmRate: 26,
+  chaseAlarmRate: 12,
+  cameraAlarmRate: 21,
+  alarmDecayRate: 4.5,
+  alarmLockdown: 100,
 
-export const LASER = {
-  // Seconds a laser beam stays on, then off, in one cycle.
-  onTime: 1.25,
-  offTime: 0.85,
-}
+  // Shadow floor and sneaking multiply how fast a guard spots the thief.
+  shadowSpotFactor: 0.5,
+  sneakSpotFactor: 0.55,
 
-export const COIN = {
-  startCount: 3,
-  // Guards closer than this (pixels) to a landed coin go to investigate it.
-  hearRadius: 210,
-  flightTime: 0.38,
-  lingerTime: 6,
-}
+  vaultHackSeconds: 2.0,
+  coinThrowCount: 3,
+  coinThrowRange: 230,
+  coinLureRadius: 170,
 
-export const ALARM = {
-  max: 100,
-  // Alarm points per second while a guard has the thief in its cone.
-  guardRate: 46,
-  cameraRate: 30,
-  laserRate: 55,
-  // Alarm points per second the meter cools down while nobody sees the thief.
-  decayRate: 9,
-  // Above this the guards run to the last place they saw the thief.
-  suspiciousAt: 55,
-}
+  lootCoin: 50,
+  lootPainting: 200,
+  lootStar: 1000,
 
-export const LOOT_VALUE = {
-  painting: 2400,
-  vault: 8000,
-  diamond: 50000,
-}
-
-export const COLORS = {
-  floor: '#232030',
-  floorAlt: '#262335',
-  wall: '#17141f',
-  wallTop: '#2e2844',
-  crate: '#4a3a22',
-  crateTop: '#6b5636',
-  loot: '#f2c94c',
-  vault: '#7fd4ff',
-  diamond: '#9ef2ff',
-  exit: '#58d68d',
-  player: '#e8e2d0',
-  guard: '#ff5d5d',
-  camera: '#ff9f43',
-  laser: '#ff2e63',
-  coneGuard: 'rgba(255, 214, 90, 0.20)',
-  coneGuardSeen: 'rgba(255, 70, 70, 0.30)',
-  coneCamera: 'rgba(255, 159, 67, 0.16)',
-  coneCameraSeen: 'rgba(255, 70, 70, 0.26)',
-}
+  // Palette: a dark gallery at night, warm gold loot, red danger.
+  colors: {
+    floorA: '#20242e',
+    floorB: '#232833',
+    floorShadow: '#171a21',
+    wall: '#3a4152',
+    wallTop: '#4d5870',
+    vaultFloor: '#2b2430',
+    gold: '#f2c14e',
+    goldDark: '#b98a2e',
+    alarmGreen: '#58c98a',
+    alarmAmber: '#f2b14e',
+    alarmRed: '#ef4b4b',
+    cone: 'rgba(242, 177, 78, 0.20)',
+    coneHot: 'rgba(239, 75, 75, 0.30)',
+    cameraCone: 'rgba(86, 178, 242, 0.16)',
+    thief: '#e8e4d8',
+    thiefCoat: '#23202b',
+    guard: '#c94f4f',
+    guardDark: '#7e2f2f',
+    exit: '#58c98a',
+  },
+};

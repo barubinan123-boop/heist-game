@@ -1,24 +1,14 @@
-// A tiny static file server for local play-testing of game/ (Node 22, standard
-// library only). Development convenience, not a production server:
-//
-//   node serve.ts [--port 8080]
-//
-// Then open http://localhost:8080 in a desktop browser. It serves only files
-// under game/, sends the MIME types a browser game needs, and refuses any path
-// that escapes the game directory.
+// Sable & Smoke — tiny static server for local playtesting.
+// Serves game/ at http://localhost:8080 (Node 22, standard library only).
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { extname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import { createReadStream, statSync } from 'node:fs'
-import { createServer } from 'node:http'
-import { extname, join, normalize, resolve, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
+const root = fileURLToPath(new URL('./game', import.meta.url));
+const port = Number(process.env.PORT ?? 8080);
 
-const root = resolve(fileURLToPath(new URL('./game', import.meta.url)))
-const args = process.argv.slice(2)
-const portFlag = args.indexOf('--port')
-const wanted = portFlag === -1 ? 8080 : Number(args[portFlag + 1])
-const port = Number.isInteger(wanted) && wanted > 0 && wanted < 65536 ? wanted : 8080
-
-const MIME = {
+const mime = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
@@ -26,25 +16,28 @@ const MIME = {
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-}
+  '.svg': 'image/svg+xml',
+};
 
-createServer((request, response) => {
-  const raw = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname)
-  const file = resolve(join(root, normalize(raw).replace(/^(\.\.[/\\])+/, '')))
-  if (file !== root && !file.startsWith(root + sep)) {
-    response.writeHead(403)
-    response.end('forbidden')
-    return
-  }
-  const target = file === root || file.endsWith(sep) ? join(file, 'index.html') : file
+const server = createServer(async (req, res) => {
   try {
-    if (!statSync(target).isFile()) throw new Error('not a file')
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    let path = url.pathname === '/' ? '/index.html' : url.pathname;
+    const file = join(root, path);
+    if (!file.startsWith(root)) {
+      res.writeHead(403);
+      res.end('forbidden');
+      return;
+    }
+    const data = await readFile(file);
+    res.writeHead(200, { 'content-type': mime[extname(file)] ?? 'application/octet-stream' });
+    res.end(data);
   } catch {
-    response.writeHead(404)
-    response.end('not found')
-    return
+    res.writeHead(404);
+    res.end('not found');
   }
-  response.writeHead(200, { 'content-type': MIME[extname(target)] ?? 'application/octet-stream' })
-  createReadStream(target).pipe(response)
-}).listen(port, () => console.log(`serving game/ at http://localhost:${port}`))
+});
+
+server.listen(port, () => {
+  console.log(`Sable & Smoke at http://localhost:${port}`);
+});
